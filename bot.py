@@ -8,7 +8,7 @@ from discord.ext import commands
 # -----------------------------------------------------
 
 # 🚨 ピアボーナスを通知する専用チャンネルのIDに変更してください 🚨
-BONUS_CHANNEL_ID = 123456789012345678 
+BONUS_CHANNEL_ID = 1423003525830414429 
 POINTS_FILE = 'points.json'
 
 # 環境変数からトークンを読み込む

@@ -1,82 +1,79 @@
 import os
+import json
 import discord
 from discord.ext import commands
-# ... 他のimport
 
-# 環境変数からトークンを読み込むように修正
-# Renderで設定する環境変数名に合わせてください（ここでは DISCORD_TOKEN を想定）
+# -----------------------------------------------------
+# 設定とデータ管理
+# -----------------------------------------------------
+
+# 🚨 ピアボーナスを通知する専用チャンネルのIDに変更してください 🚨
+BONUS_CHANNEL_ID = 123456789012345678 
+POINTS_FILE = 'points.json'
+
+# 環境変数からトークンを読み込む
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
     print("エラー: 環境変数 DISCORD_TOKEN が設定されていません。")
+    # ローカル実行時の代替として .env ファイルから読み込むなどの処理を追加できますが、
+    # Railwayでのデプロイのためにここでは exit() します
     exit()
 
-# コマンドのプレフィックス（例: !）を設定
-intents = discord.Intents.default()
-intents.message_content = True # コマンドを処理するために必要
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# ... ピアボーナスのコマンド定義（@bot.command() など） ...
-
-@bot.event
-async def on_ready():
-    print(f'Botが起動しました。ログインユーザー: {bot.user}')
-
-# Botを起動
-bot.run(DISCORD_TOKEN)
-
 # -----------------------------------------------------
-# ピアボーナス機能の追加
+# ポイントデータの読み書き処理
 # -----------------------------------------------------
 
-# 簡易的なポイントデータストア (注意: Bot再起動で消えます!)
-# 安定稼働には外部DBが必要ですが、テストのためローカル辞書を使用
-USER_POINTS = {}
+def load_points():
+    """ポイントデータをファイルから読み込む"""
+    try:
+        if os.path.exists(POINTS_FILE):
+            with open(POINTS_FILE, 'r') as f:
+                # ファイルから読み込んだキー(ユーザーID)をintに変換して返す
+                data = json.load(f)
+                return {int(k): v for k, v in data.items()}
+    except json.JSONDecodeError:
+        print("警告: points.jsonの読み込みエラー。新しいファイルを作成します。")
+        return {}
+    return {}
 
-# ポイント付与とチャンネル通知のチャンネルID (🚨ご自身のIDに変更してください🚨)
-BONUS_CHANNEL_ID = 123456789012345678 # 例: '998877665544332211' などの専用チャンネルID
+def save_points(points_data):
+    """ポイントデータをファイルに書き込む"""
+    # 保存のためにユーザーIDを文字列に変換する
+    with open(POINTS_FILE, 'w') as f:
+        json.dump({str(k): v for k, v in points_data.items()}, f, indent=4)
+
+# 起動時にポイントを読み込む
+USER_POINTS = load_points()
 
 def update_points(user_id, points):
-    """ユーザーのポイントを更新するヘルパー関数"""
+    """ユーザーのポイントを更新し、ファイルを保存するヘルパー関数"""
+    global USER_POINTS
     current_points = USER_POINTS.get(user_id, 0)
     USER_POINTS[user_id] = current_points + points
+    save_points(USER_POINTS) # 更新のたびにファイルを保存
     return USER_POINTS[user_id]
 
 
-@bot.command(name='thank')
-async def give_bonus(ctx, member: discord.Member, *, reason: str = "特に理由なし"):
-    """
-    ピアボーナスを付与するコマンド: !thank @ユーザー 理由
-    """
-    # 1. 自分自身を褒めるのをチェック
-    if member.id == ctx.author.id:
-        await ctx.send(f"❌ {ctx.author.display_name}さん、自分自身を褒めることはできません！")
-        return
+# -----------------------------------------------------
+# Botの初期設定
+# -----------------------------------------------------
 
-    # 2. ポイント付与
-    # 褒めた人: 1点
-    update_points(ctx.author.id, 1)
-    # 褒められた人: 2点
-    update_points(member.id, 2)
+# メッセージ内容のインテントを有効にする (コマンド処理に必須)
+intents = discord.Intents.default()
+intents.message_content = True 
 
-    # 3. 専用チャンネルへの投稿
-    bonus_channel = bot.get_channel(BONUS_CHANNEL_ID)
+# コマンドプレフィックスを '!' に設定
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-    if bonus_channel:
-        # メッセージを作成
-        embed = discord.Embed(
-            title="🌟 ピアボーナス付与！",
-            description=f"**{ctx.author.display_name}** さんが **{member.display_name}** さんを褒めました！",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="理由", value=reason, inline=False)
-        embed.add_field(name="ポイント内訳", value=f"✅ 褒めた人 ({ctx.author.display_name}): **+1** 点\n✅ 褒められた人 ({member.display_name}): **+2** 点", inline=False)
-        
-        await bonus_channel.send(embed=embed)
-        
-        # コマンドを実行したチャンネルへの確認メッセージ
-        await ctx.send(f"✅ ボーナスを付与しました！確認は <#{BONUS_CHANNEL_ID}> でどうぞ。")
-    else:
-        # チャンネルが見つからない場合は、実行チャンネルに通知
-        await ctx.send(f"✅ ボーナスを付与しました！しかし、設定されたチャンネルID({BONUS_CHANNEL_ID})が見つかりません。")
 
 # -----------------------------------------------------
+# イベント処理
+# -----------------------------------------------------
+
+@bot.event
+async def on_ready():
+    """BotがDiscordに接続したときに実行されます"""
+    print(f'Botが起動しました。ログインユーザー: {bot.user}')
+
+
+# --------------------------------
